@@ -14,6 +14,7 @@
 #include <QFile>
 #include <QWidget>
 #include <QThread>
+#include <QIcon>
 
 #include <atomic>
 #include <vector>
@@ -25,6 +26,7 @@
 #include <X11/extensions/XInput2.h>
 #include <X11/extensions/XTest.h>
 #include <X11/extensions/Xfixes.h>
+#include <X11/extensions/Xrandr.h>
 
 // -------------------- Event model --------------------
 struct Event {
@@ -34,7 +36,82 @@ struct Event {
     int button{0};
     bool pressed{false};
     unsigned int keycode{0};
+
+    QString monitor;      // monitor name
+    int relx{0}, rely{0}; // coords relative to that monitor
 };
+
+struct MonitorInfo {
+    QString name;
+    int x, y, width, height;
+};
+
+// -------------------- Monitor helpers --------------------
+static MonitorInfo findMonitorForPoint(Display* dpy, int x, int y) {
+    MonitorInfo result{"",0,0,0,0};
+    Window root = DefaultRootWindow(dpy);
+    XRRScreenResources* res = XRRGetScreenResourcesCurrent(dpy, root);
+    if (!res) return result;
+
+    for (int i=0; i<res->noutput; i++) {
+        XRROutputInfo* output = XRRGetOutputInfo(dpy, res, res->outputs[i]);
+        if (!output) continue;
+        if (output->connection == RR_Connected && output->crtc) {
+            XRRCrtcInfo* crtc = XRRGetCrtcInfo(dpy, res, output->crtc);
+            if (crtc) {
+                // Cast width/height to int to avoid signed/unsigned warnings
+                int w = static_cast<int>(crtc->width);
+                int h = static_cast<int>(crtc->height);
+                if (x >= crtc->x && x < crtc->x + w &&
+                    y >= crtc->y && y < crtc->y + h) {
+                    result.name = output->name;
+                    result.x = crtc->x;
+                    result.y = crtc->y;
+                    result.width = w;
+                    result.height = h;
+                    XRRFreeCrtcInfo(crtc);
+                    XRRFreeOutputInfo(output);
+                    break;
+                }
+                XRRFreeCrtcInfo(crtc);
+            }
+        }
+        XRRFreeOutputInfo(output);
+    }
+    XRRFreeScreenResources(res);
+    return result;
+}
+
+static MonitorInfo findMonitorByName(Display* dpy, const QString& name) {
+    MonitorInfo result{"",0,0,0,0};
+    Window root = DefaultRootWindow(dpy);
+    XRRScreenResources* res = XRRGetScreenResourcesCurrent(dpy, root);
+    if (!res) return result;
+
+    for (int i=0; i<res->noutput; i++) {
+        XRROutputInfo* output = XRRGetOutputInfo(dpy, res, res->outputs[i]);
+        if (!output) continue;
+        if (output->connection == RR_Connected && output->crtc) {
+            XRRCrtcInfo* crtc = XRRGetCrtcInfo(dpy, res, output->crtc);
+            if (crtc) {
+                if (name == output->name) {
+                    result.name = output->name;
+                    result.x = crtc->x;
+                    result.y = crtc->y;
+                    result.width = static_cast<int>(crtc->width);
+                    result.height = static_cast<int>(crtc->height);
+                    XRRFreeCrtcInfo(crtc);
+                    XRRFreeOutputInfo(output);
+                    break;
+                }
+                XRRFreeCrtcInfo(crtc);
+            }
+        }
+        XRRFreeOutputInfo(output);
+    }
+    XRRFreeScreenResources(res);
+    return result;
+}
 
 // -------------------- Time helper --------------------
 static std::int64_t now_ms() {
@@ -112,7 +189,16 @@ protected:
                     Window r, c; int rx, ry, x, y; unsigned int msk;
                     XQueryPointer(dpy, root, &r, &c, &rx, &ry, &x, &y, &msk);
                     if (x != last_x || y != last_y) {
-                        events.push_back({Event::MouseMove, t, x, y});
+                        MonitorInfo monitorInfo = findMonitorForPoint(dpy, x, y);
+                        Event e;
+                        e.type = Event::MouseMove;
+                        e.ms_since_start = t;
+                        e.x = x;
+                        e.y = y;
+                        e.monitor = monitorInfo.name;
+                        e.relx = x - monitorInfo.x;
+                        e.rely = y - monitorInfo.y;
+                        events.push_back(e);
                         last_x = x; last_y = y;
                     }
                     break;
@@ -125,15 +211,34 @@ protected:
                     bool isPress = (ev.xcookie.evtype == XI_RawButtonPress);
                     if (isPress) downButtons.insert(re->detail);
                     else downButtons.erase(re->detail);
-                    events.push_back({Event::MouseButton, t, x, y, (int)re->detail, isPress});
+
+                    MonitorInfo monitorInfo = findMonitorForPoint(dpy, x, y);
+                    Event e;
+                    e.type = Event::MouseButton;
+                    e.ms_since_start = t;
+                    e.x = x;
+                    e.y = y;
+                    e.button = (int)re->detail;
+                    e.pressed = isPress;
+                    e.monitor = monitorInfo.name;
+                    e.relx = x - monitorInfo.x;
+                    e.rely = y - monitorInfo.y;
+                    events.push_back(e);
                     break;
                 }
                 case XI_RawKeyPress:
                 case XI_RawKeyRelease: {
                     auto *re = (XIRawEvent*)ev.xcookie.data;
-                    events.push_back({Event::Key, t, 0, 0, 0,
-                                      ev.xcookie.evtype == XI_RawKeyPress,
-                                      (unsigned)re->detail});
+                    events.push_back({
+                        Event::Key,
+                        t,
+                        0, 0,                                // x, y
+                        0,                                   // button
+                        ev.xcookie.evtype == XI_RawKeyPress, // pressed
+                        (unsigned)re->detail,                // keycode
+                        QString(),                           // monitor
+                        0, 0                                 // relx, rely
+                    });
                     break;
                 }
             }
@@ -145,8 +250,19 @@ protected:
             Window r, c; int rx, ry, x, y; unsigned int msk;
             XQueryPointer(dpy, root, &r, &c, &rx, &ry, &x, &y, &msk);
             auto t = now_ms() - start;
+            MonitorInfo monitorInfo = findMonitorForPoint(dpy, x, y);
             for (int b : downButtons) {
-                events.push_back({Event::MouseButton, t, x, y, b, false});
+                Event e;
+                e.type = Event::MouseButton;
+                e.ms_since_start = t;
+                e.x = x;
+                e.y = y;
+                e.button = b;
+                e.pressed = false;
+                e.monitor = monitorInfo.name;
+                e.relx = x - monitorInfo.x;
+                e.rely = y - monitorInfo.y;
+                events.push_back(e);
             }
         }
 
@@ -202,12 +318,32 @@ protected:
                 }
 
                 switch (e.type) {
-                    case Event::MouseMove:
-                        XTestFakeMotionEvent(dpy, -1, e.x, e.y, 0);
+                    case Event::MouseMove: {
+                        int absx = e.x;
+                        int absy = e.y;
+                        if (!e.monitor.isEmpty()) {
+                            MonitorInfo monitorInfo = findMonitorByName(dpy, e.monitor);
+                            if (!monitorInfo.name.isEmpty()) {
+                                absx = monitorInfo.x + e.relx;
+                                absy = monitorInfo.y + e.rely;
+                            }
+                        }
+                        XTestFakeMotionEvent(dpy, -1, absx, absy, 0);
                         XFlush(dpy);
                         break;
+                    }
 
                     case Event::MouseButton: {
+                        int absx = e.x;
+                        int absy = e.y;
+                        if (!e.monitor.isEmpty()) {
+                            MonitorInfo monitorInfo = findMonitorByName(dpy, e.monitor);
+                            if (!monitorInfo.name.isEmpty()) {
+                                absx = monitorInfo.x + e.relx;
+                                absy = monitorInfo.y + e.rely;
+                                XTestFakeMotionEvent(dpy, -1, absx, absy, 0); // move before click
+                            }
+                        }
                         XTestFakeButtonEvent(dpy, e.button, e.pressed, 0);
                         XFlush(dpy);
 
@@ -561,6 +697,9 @@ private:
 // -------------------- main --------------------
 int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
+
+    app.setWindowIcon(QIcon(":/icons/BiggerTask.svg"));
+
     MainWindow w;
     w.setWindowTitle("BiggerTask");
     w.show();
