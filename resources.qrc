@@ -1,5 +1,6 @@
 <RCC>
   <qresource prefix="/">
     <file>icons/BiggerTask.svg</file>
+    <file>config/config.json</file>
   </qresource>
 </RCC>
