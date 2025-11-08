@@ -7,10 +7,8 @@ SOURCES += BiggerTask.cpp
 
 RESOURCES += resources.qrc
 
-# Link against X11 and extensions
 LIBS += -lX11 -lXi -lXtst -lXext -lXfixes -lXrandr
 
-# Install rules for Flatpak
 target.path = /app/bin
 INSTALLS += target
 
