@@ -13,3 +13,42 @@ To Stop it, click on the "Ctrl" key
 THIS WON'T WORK ON WAYLAND (Cuz of compatibility issues)
 
 <img width="497" height="210" alt="image" src="https://github.com/user-attachments/assets/41756bde-6709-44d8-b70a-8a370f2236e6" />
+
+
+# Installing
+
+# 1. Flathub (easiest)
+[![Download on Flathub](https://flathub.org/assets/badges/flathub-badge-en.svg)](https://flathub.org/apps/io.github.taboulet.BiggerTask)
+
+
+# 2. Executable
+Get the executable in the release tab and run it
+
+# 3. Build from source
+Download the zip, extract it, delete the already built executable, open the terminal in the folder and run :
+```bash
+qmake BiggerTask.pro
+make
+``` 
+Make sure you have the required dependencies :
+
+Debian
+```bash
+sudo apt install build-essential qtbase5-dev qtchooser qt5-qmake qtbase5-dev-tools \
+                 libx11-dev libxi-dev libxtst-dev libxext-dev libxfixes-dev libxrandr-dev
+```
+Fedora
+```bash
+
+sudo dnf install @development-tools qt5-qtbase-devel \
+                 libX11-devel libXi-devel libXtst-devel libXext-devel libXfixes-devel libXrandr-devel
+```
+Arch
+```bash
+sudo pacman -S base-devel qt5-base \
+             libx11 libxi libxtst libxext libxfixes libxrandr
+
+``` 
+
+
+
