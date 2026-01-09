@@ -27,7 +27,7 @@ Get the executable in the release tab and run it
 # 3. Build from source
 Download the zip, extract it, delete the already built executable, open the terminal in the folder and run :
 ```bash
-qmake BiggerTask.pro
+qmake6 BiggerTask.pro
 make
 ``` 
 Make sure you have the required dependencies :
