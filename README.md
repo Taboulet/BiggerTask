@@ -1,4 +1,7 @@
+Note : I decided to archive this project because i kinda lost motivation in fixing the issues it has. As much as it is a really good app for X11 devices, it stills lack wayland support which is really hard for me to do (i know NOTHING about wayland, beside the fact i should use libei) and mostly cuz [Crossmacro](https://github.com/alper-han/CrossMacro) exactly does that and is way more stable, i recommend using it instead if you are using Wayland. I might come back eventually and fix this but not now.
+
 # BiggerTask
+
 A TinyTask clone for Linux
 
 This app is basically a Linux Clone of the Windows app "Tinytask", it's written in c++ and is a simple executable allowing you to :
